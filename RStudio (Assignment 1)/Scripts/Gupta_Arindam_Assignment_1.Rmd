@@ -1,0 +1,201 @@
+---
+title: 'Assignment 1: Using BOLD database to compare latitudinal ranges of Araneae
+  in Canada versus India'
+Name: Arindam Gupta
+date: "October 3rd, 2024"
+output:
+  #Wrap lines in the PDF output from rmarkdown (Cited: ulyngs)
+  pdf_document:
+    includes:
+      in_header: "wrap-code.tex"
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##-----------**Introduction**-----------##
+
+Spiders, belonging to the order *Araneae*, are an interesting taxonomic group due to their abundance in most residential areas in Canada. They play an important role in controlling the population of insects, akin to natural pest control agents (Hesselberg et al., 2023). They are widespread across diverse environments, ranging from temperate to tropical regions. One interesting hypothesis is that *Araneae* in temperate regions, such as Canada, show a larger geographic range compared to those in tropical regions, like India. This hypothesis is on the basis that temperate regions have greater environmental variability, which forces the species to adapt to a wider range of conditions, which in turn increase their geographic distribution. 
+
+Previous studies have stated that species in variable climates likely portray larger ecological tolerances and, thus, wider geographic ranges (Stevens, 1989). On the other hand, tropical regions usually have a more consistent environment, allowing species to adapt to more specific ecological conditions (Brown et al., 1996). To test this hypothesis, data was obtained from the Barcode of Life Data System (BOLD), which is a database for DNA-based species identification and biodiversity research (Ratnasingham & Hebert, 2007). DNA barcoding, which involves sequencing a standardized region of DNA, is a reliable method to help identify species and their genetic diversity (Hebert et al., 2003). This assignment compares the latitudinal ranges of *Araneae* BINs (Barcode Index Numbers) in Canada and India using BOLD data.
+
+
+
+##---------**R Codes**---------##
+```{r}
+#Note: the code chunks have arguments (e.g. echo=TRUE, message=FALSE) that help in suppressing messages and warning when this file is knit, for a more cleaner output
+```
+
+```{r library, echo=TRUE, message=FALSE, warning=FALSE}
+#Load the necessary libraries for data analysis and visualization
+#Suppress package startup messages for cleaner output (cited: shadowtalker, 2017)
+suppressPackageStartupMessages({
+  library(maps)     
+  library(ggplot2)     
+  library(dplyr)
+  library(tidyverse)
+  library(broom)
+  conflicted::conflict_prefer("filter", "dplyr")
+})
+
+
+```
+
+```{r readFile, echo=TRUE, message=FALSE, warning=FALSE}
+#Note: to load the data from BOLD initially, I used the following code: 
+#df_canada <- read_tsv(file = "http://boldsystems.org/index.php/API_Public/combined?taxon=Araneae&geo=Canada&format=tsv")
+
+#Due to the large file size and the slow download speed of the BOLD servers, I have included the .tsv file as an attachment when submitting this assignment (as discussed and allowed to in the email I sent)
+
+#So I will be loading the data set from the .tsv file I have provided. Please place the Araneae.tsv file in a subfolder called data inside your working directory (as it was taught to us in class)
+
+#Load the Araneae dataset from the .tsv file obtain from BOLD
+#The dataset includes BIN (Barcode Index Numbers) and geographical information (latitude and longitude).
+df_bold <- read_tsv(file = "../data/Araneae.tsv")
+```
+
+
+```{r Figure1, echo = TRUE, message=FALSE, warning = FALSE}
+
+#Figure 1: Map showing the geographic distribution of Araneae BINs in Canada and India
+
+#Filter and group data by valid bin_uri, lat, lon, and country, so that only Canada and India are included.
+df_map <- df_bold |> 
+  group_by(country) |> 
+  filter(country == "Canada" | country == "India",!is.na(bin_uri), !is.na(lat), !is.na(lon)) 
+
+#Load the world map data for plotting
+world_map <- map_data("world")
+
+#Plot the geographic distribution of BINs in Canada and India
+ggplot() +
+  geom_polygon(data = world_map, aes(x = long, y= lat, group = group), fill = "lightgray", color = "white") +
+  geom_point(data = df_map, aes(x = lon, y = lat, color = country), size = 2) +
+  labs(title = "Geographic Distribution of Araneae BINs in Canada and India", x = "Longitude", y = "Latitude") +
+  theme_minimal()
+
+
+```
+
+
+
+```{r Figure1Explain}
+
+#Figure 1:
+#This map shows the geographic spread of Araneae BINs across Canada and India.
+#The wider distribution of points in Canada supports the hypothesis that spiders in temperate regions have larger geographic ranges due to greater environmental variability compared to the more concentrated distribution of BINs in tropical India.
+
+```
+
+
+
+
+```{r Figure2, echo = TRUE, message=FALSE, warning = FALSE}
+
+#Figure 2: Violin Plot for Latitudinal Range Distribution between Canada and India
+
+#Calculate the latitudinal range for each BIN in each country
+df_lat_range <- df_bold |> 
+  filter(!is.na(bin_uri)) |>
+  group_by(bin_uri, country) |> 
+  summarise(lat_range = max(lat) - min(lat)) |>
+  filter(country == "Canada" | country == "India", !is.na(lat_range))
+
+#Plot the violin plot comparing the distribution of latitudinal ranges in both countries
+ggplot(df_lat_range, aes(x = country, y = lat_range, fill = country)) +
+  geom_violin(trim = FALSE) +
+  geom_boxplot(width = 0.1, color = "black") +
+  labs(title = "Latitudinal Range of Araneae BINs in Canada vs India", x = "Country", y = "Latitudinal Range") +
+  theme_minimal()
+
+```
+
+
+
+```{r Figure2Explain}
+
+#Figure 2:
+#The violin plot shows a visual comparison of the distribution of latitudinal ranges between Canada and India.
+#The plot shows that Canada has a much wider distribution (indicated by the longer stem of the "violin"), with several outliers, indicating a larger overall geographic range.
+#India shows a narrower distribution, with most BINs concentrated in smaller ranges (wider base of the "violin").
+#This further supports the hypothesis that spiders in temperate regions have larger geographic ranges compared to tropical regions.
+
+```
+
+
+
+```{r Figure3, echo = TRUE, message=FALSE, warning = FALSE}
+#Figure 3: PCA for Latitudinal and Longitudinal Ranges of Araneae BINs
+
+#Calculate latitudinal and longitudinal ranges for each BIN
+df_range <- df_bold |> 
+  filter(!is.na(bin_uri)) |> 
+  group_by(bin_uri, country) |> 
+  summarise(
+    lat_range = max(lat) - min(lat),  
+    lon_range = max(lon) - min(lon)   
+  ) |> 
+  filter(!is.na(lat_range), !is.na(lon_range), country %in% c("Canada", "India"))
+
+#Perform PCA
+pca_result <- prcomp(df_range[, c("lat_range", "lon_range")], scale. = TRUE)
+
+#Attach PCA scores to the original dataframe using augment (broom package)
+df_range_pca <- augment(pca_result, df_range)
+
+#Plot the two principal components
+ggplot(df_range_pca, aes(x = .fittedPC1, y = .fittedPC2, color = country)) +
+  geom_point(size = 2) +
+  labs(title = "PCA of Latitudinal and Longitudinal Ranges of Araneae BINs",
+       x = "PC1", y = "PC2") +
+  theme_minimal()
+
+
+```
+
+```{r Figure3Explain}
+
+#Figure 3:
+#The PCA plot shows a comparison of latitudinal and longitudinal ranges for Araneae BINs between Canada and India.
+#Canada shows a much broader spread across both components, indicating greater geographic variation.
+#India shows a more concentrated grouping, indicating narrower geographic ranges.
+#This further supports the hypothesis that spiders in temperate regions have larger geographic ranges compared to tropical regions.
+```
+
+
+
+##------**Results and Discussions**------##
+
+The results from the three figures show strong support for the hypothesis that spiders in temperate regions, such as Canada, have larger geographic ranges compared to those in tropical regions, like India. In Figure 1, the map displays the geographic distribution of Araneae BINs, showing that BINs in Canada are spread over a much wider geographic area compared to those in India, where the distribution is more concentrated. In Figure 2, the violin plot shows the spread of latitudinal ranges in both regions. Although India has a wider center in the 0–5 degree range, indicating more concentration of its BINs in that range relative to its total BINs, Canada’s BINs demonstrate a much larger overall spread, with several outliers extending beyond 20 degrees. Finally, in Figure 3, the PCA plot further outlines the differences between these two regions by showing that Canadian BINs show greater variability across the first two principal components, while Indian BINs are grouped together more tightly. The spread in Canada’s data implies a wider range of geographic variation, both in latitude and longitude.
+
+
+These patterns shown in the figures align with the hypothesis. The wider geographic ranges in Canada could be explained by the greater environmental variability in temperate regions, which forces species to adapt to a broader range of conditions. By comparison, the narrower geographic ranges in India reflect the stability of tropical environments, where species adapt to more specific ecological conditions (Brown et al., 1996). However, one potential source of discrepancy that could account for an incorrect hypothesis is the limited number of BINs sampled from India. It is possible that insufficient sampling efforts in India may have led to an under representation of Araneae species, skewing the results. To increase the scope of testing this hypothesis in future research, one could explore whether these patterns exist across other taxonomic groups that are equally represented, or include more countries from both temperate and tropical regions. In doing so, it can potentially lead to broader understanding of how environmental variability affects species distributions on a larger scale.
+
+
+
+
+##---**Acknowledgements**---##
+
+I would like to express my gratitude to our TA, Brittany MacIntyre, for her assistance—particularly regarding my question on handling large data files and the possibility of providing the file for convenience.
+
+
+I would also like to acknowledge the use of ChatGPT in helping me understand and use the PCA analysis in R. Even after consulting manuals and tutorials, I found it difficult to understand and apply PCA to my specific dataset and hypothesis. ChatGPT provided the guidance I needed to perform the PCA correctly.
+
+
+##-**References**-##
+
+Brown, J. H., Stevens, G. C., & Kaufman, D. M. (1996). The Geographic Range: Size, Shape, Boundaries, and Internal Structure. Annual Review of Ecology and Systematics, 27, 597–623. http://www.jstor.org/stable/2097247
+
+Hebert, P. D. N., Cywinska, A., Ball, S. L., & deWaard, J. R. (2003). Biological identifications through DNA barcodes. In Proceedings of the Royal Society of London. Series B: Biological Sciences (Vol. 270, Issue 1512, pp. 313–321). The Royal Society. https://doi.org/10.1098/rspb.2002.2218
+
+RATNASINGHAM, S., & HEBERT, P. D. N. (2007). <scp>bold</scp>: The Barcode of Life Data System (http://www.barcodinglife.org). In Molecular Ecology Notes (Vol. 7, Issue 3, pp. 355–364). Wiley. https://doi.org/10.1111/j.1471-8286.2007.01678.x
+
+shadowtalker (2017, August 21). R - Markdown avoiding package loading messages. https://stackoverflow.com/questions/13090838
+
+Stevens, G. C. (1989). The Latitudinal Gradient in Geographical Range: How so Many Species Coexist in the Tropics. In The American Naturalist (Vol. 133, Issue 2, pp. 240–256). University of Chicago Press. https://doi.org/10.1086/284913
+
+ulyngs (2021, September 24). Markdown to PDF - Wrap text in code chunks and results. https://github.com/rstudio/rmarkdown/issues/646
+
+vestland (2020, May 19). Plotly: How to convert ggplot object into plotly? https://stackoverflow.com/questions/61888967
