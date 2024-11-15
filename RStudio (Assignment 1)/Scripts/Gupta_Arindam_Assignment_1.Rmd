@@ -61,19 +61,59 @@ df_bold <- read_tsv(file = "../data/Araneae.tsv")
 
 #Figure 1: Map showing the geographic distribution of Araneae BINs in Canada and India
 
-#Filter and group data by valid bin_uri, lat, lon, and country, so that only Canada and India are included.
-df_map <- df_bold |> 
-  group_by(country) |> 
-  filter(country == "Canada" | country == "India",!is.na(bin_uri), !is.na(lat), !is.na(lon)) 
+#Create a function to filter and group data by valid bin_uri, lat, lon, and country, so that only Canada and India are included.
+filter_data <- function(data, countries = c("Canada", "India")) {
+  results <- data %>%
+    filter(country %in% countries, 
+           !is.na(bin_uri), 
+           !is.na(lat), 
+           !is.na(lon)) %>%
+    group_by(country)
+  
+  return(results)
+}
+
+#Filtering original data frame from BOLD
+df_map <- filter_data(df_bold)
+
+#Create a function to check general summary statistics of data frame
+# This function returns a list containing the number of missing values, the distribution of samples by country, and the number of unique BINs in each country
+check_data_summary <- function(df) {
+ 
+  # Missing values summary
+  missing_bin_uri <- sum(is.na(df$bin_uri))
+  missing_lat <- sum(is.na(df$lat))
+  missing_lon <- sum(is.na(df$lon))
+  
+   # Country distribution
+  country_distribution <- table(df$country)
+  
+  # Unique bins in each country
+  unique_bins <- df %>%
+    group_by(country) %>% 
+    summarize(unique_bins = n_distinct(bin_uri))
+  
+  # Store results in a list for easier interpretation
+  result <- list(
+    "NAs in BIN" = missing_bin_uri,
+    "NAs in lat" = missing_lat,
+    "NAs in lon" = missing_lon,
+    "Samples per Country" = country_distribution,
+    "Unique BINS per Country" = unique_bins)
+  return(result)
+}
+  
+# Checking summary statistics
+check_data_summary(df_map)
 
 #Load the world map data for plotting
 world_map <- map_data("world")
 
 #Plot the geographic distribution of BINs in Canada and India
 ggplot() +
-  geom_polygon(data = world_map, aes(x = long, y= lat, group = group), fill = "lightgray", color = "white") +
-  geom_point(data = df_map, aes(x = lon, y = lat, color = country), size = 2) +
-  labs(title = "Geographic Distribution of Araneae BINs in Canada and India", x = "Longitude", y = "Latitude") +
+  geom_polygon(data = world_map, aes(x = long, y= lat, group = group), fill = "gray", color = "white") +
+  geom_point(data = df_map, aes(x = lon, y = lat, color = country), size = 0.8) +
+  labs(title = "Geographic Distribution of Araneae BINs in Canada and India", x = "Longitude", y = "Latitude", color = "Country") +
   theme_minimal()
 
 
@@ -90,24 +130,52 @@ ggplot() +
 ```
 
 
-
-
 ```{r Figure2, echo = TRUE, message=FALSE, warning = FALSE}
-
 #Figure 2: Violin Plot for Latitudinal Range Distribution between Canada and India
 
-#Calculate the latitudinal range for each BIN in each country
-df_lat_range <- df_bold |> 
-  filter(!is.na(bin_uri)) |>
-  group_by(bin_uri, country) |> 
-  summarise(lat_range = max(lat) - min(lat)) |>
-  filter(country == "Canada" | country == "India", !is.na(lat_range))
+#Calculate the standardized latitudinal range for each BIN in each country. Standardization of latitudinal range is necessary because Canada and India does not have the same latitudinal range.
+df_lat_range <- df_bold %>%
+  filter(country %in% c("Canada", "India")) %>%
+  filter(!is.na(bin_uri), !is.na(lat)) %>% 
+  group_by(bin_uri, country) %>%
+  summarize(lat_range = max(lat) - min(lat)) %>% # Calculate latitudinal range for each BIN
+  group_by(country) %>% #Grouping by country for accurate latitudinal range mean calculation for each country
+  mutate(standardized_lat_range = (lat_range - mean(lat_range)) / sd(lat_range)) %>% #Standardize latitudinal range of each country using z-scores
+  ungroup()
 
-#Plot the violin plot comparing the distribution of latitudinal ranges in both countries
-ggplot(df_lat_range, aes(x = country, y = lat_range, fill = country)) +
+#Check summary statistics
+check_data_summary(df_lat_range)
+summary(df_lat_range$standardized_lat_range)
+sum(is.na(df_lat_range$standardized_lat_range))
+
+#Set seed for reproducibility
+set.seed(123)
+
+# Function to sample rows from country 1 to match sample count of country 2
+sample_matching <- function(df, country_1, country_2) {
+  # Filter data for the two specified countries
+  data_country_2 <- df %>%
+    filter(country == country_2)
+  # Sample rows from country_1 to match row count of country_2
+  data_country_1_sample <- df %>%
+    filter(country == country_1) %>%
+    sample_n(nrow(data_country_2))
+  # Combine the sampled data
+  bind_rows(data_country_1_sample, data_country_2)
+}
+
+#Balance samples from Canada and India. This is necessary because of the large difference of sample points between the two countries
+df_balanced_lat_data <- sample_matching(df_lat_range, "Canada", "India")
+
+#Check summary statistics
+check_data_summary(df_balanced_lat_data)
+summary(df_balanced_lat_data$standardized_lat_range)
+
+#Plot the violin plot comparing the distribution of standardized latitudinal ranges in both countries
+ggplot(df_balanced_lat_data, aes(x = country, y = standardized_lat_range, fill = country)) +
   geom_violin(trim = FALSE) +
   geom_boxplot(width = 0.1, color = "black") +
-  labs(title = "Latitudinal Range of Araneae BINs in Canada vs India", x = "Country", y = "Latitudinal Range") +
+  labs(title = "Violin Plot of Standardized Latitudinal Range of Araneae \nBINs in Canada vs India", x = "Country", y = "Latitudinal Range", fill = "Country") +
   theme_minimal()
 
 ```
@@ -129,29 +197,45 @@ ggplot(df_lat_range, aes(x = country, y = lat_range, fill = country)) +
 ```{r Figure3, echo = TRUE, message=FALSE, warning = FALSE}
 #Figure 3: PCA for Latitudinal and Longitudinal Ranges of Araneae BINs
 
-#Calculate latitudinal and longitudinal ranges for each BIN
-df_range <- df_bold |> 
-  filter(!is.na(bin_uri)) |> 
-  group_by(bin_uri, country) |> 
+#Calculate the standardized latitudinal and longitudinal ranges for each BIN. This is important because the latitudinal and longitudinal of Canada and India are not similar.
+df_range <- df_bold %>%  
+  filter(country %in% c("Canada", "India")) %>%
+  filter(!is.na(bin_uri), !is.na(lat), !is.na(lon)) %>%   
+  group_by(bin_uri, country) %>%  
   summarise(
     lat_range = max(lat) - min(lat),  
     lon_range = max(lon) - min(lon)   
-  ) |> 
-  filter(!is.na(lat_range), !is.na(lon_range), country %in% c("Canada", "India"))
+  ) %>%
+  group_by(country) %>% #Grouping by country for accurate latitudinal and longitudinal range mean calculation for each country
+  mutate(
+    lat_range_z = (lat_range - mean(lat_range)) / sd(lat_range),
+    lon_range_z = (lon_range - mean(lon_range)) / sd(lon_range)) %>% #Standardize ranges of each country using z-scores
+  ungroup()
+
+#Check summary statistics
+check_data_summary(df_range)
+summary(df_range$lat_range_z)
+sum(is.na(df_range$lat_range_z))
+summary(df_range$lon_range_z)
+sum(is.na(df_range$lon_range_z))
+
+#Set seed for reproducibility
+set.seed(123)
+
+#Balance samples from Canada and India due to a large difference between sample points.
+df_range_balanced <- sample_matching(df_range, "Canada", "India")
 
 #Perform PCA
-pca_result <- prcomp(df_range[, c("lat_range", "lon_range")], scale. = TRUE)
+pca_result <- prcomp(df_range_balanced[, c("lat_range_z", "lon_range_z")], scale. = TRUE)
 
 #Attach PCA scores to the original dataframe using augment (broom package)
-df_range_pca <- augment(pca_result, df_range)
+df_range_pca <- augment(pca_result, df_range_balanced)
 
 #Plot the two principal components
 ggplot(df_range_pca, aes(x = .fittedPC1, y = .fittedPC2, color = country)) +
   geom_point(size = 2) +
-  labs(title = "PCA of Latitudinal and Longitudinal Ranges of Araneae BINs",
-       x = "PC1", y = "PC2") +
+  labs(title = "PCA of Standardized Latitudinal and Longitudinal Ranges \nof Araneae BINs", x = "PC1", y = "PC2", color = "Country") +
   theme_minimal()
-
 
 ```
 
@@ -163,7 +247,6 @@ ggplot(df_range_pca, aes(x = .fittedPC1, y = .fittedPC2, color = country)) +
 #India shows a more concentrated grouping, indicating narrower geographic ranges.
 #This further supports the hypothesis that spiders in temperate regions have larger geographic ranges compared to tropical regions.
 ```
-
 
 
 ##------**Results and Discussions**------##
