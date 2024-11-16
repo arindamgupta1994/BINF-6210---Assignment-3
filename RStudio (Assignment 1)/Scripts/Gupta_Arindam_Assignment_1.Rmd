@@ -9,10 +9,18 @@ output:
     includes:
       in_header: "wrap-code.tex"
   html_document: default
+
+
+##Attribution:
+#Author: Arindam Gupta
+#All edits done by Frances Bonafe
+
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+
 ```
 
 ##-----------**Introduction**-----------##
